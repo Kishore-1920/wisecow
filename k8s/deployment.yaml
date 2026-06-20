@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wisecow-deployment
+  labels:
+    app: wisecow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wisecow
+  template:
+    metadata:
+      labels:
+        app: wisecow
+    spec:
+      containers:
+        - name: wisecow
+          # Replace YOUR_GITHUB_USERNAME with your actual GitHub username
+          # This image will be built and pushed by the GitHub Actions CI/CD pipeline
+          image: ghcr.io/kishore-1920/wisecow:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4499

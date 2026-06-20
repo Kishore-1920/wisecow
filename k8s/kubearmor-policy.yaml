@@ -1,0 +1,119 @@
+# ============================================================
+# KubeArmor Zero-Trust Security Policy for Wisecow App
+# ============================================================
+# This policy implements a zero-trust security model for the
+# wisecow workload running in Kubernetes.
+#
+# Zero-Trust means: DENY everything by default,
+# ALLOW only what the application strictly needs to function.
+#
+# Wisecow only needs:
+#   - bash to run wisecow.sh
+#   - fortune and cowsay to generate output
+#   - netcat (nc) to serve HTTP on port 4499
+#
+# Everything else is BLOCKED.
+# ============================================================
+
+---
+# Policy 1: PROCESS — Allow only required executables
+# Block any process that wisecow doesn't need
+apiVersion: security.kubearmor.com/v1
+kind: KubeArmorPolicy
+metadata:
+  name: wisecow-block-unwanted-processes
+  namespace: default
+spec:
+  severity: 7
+  message: "Blocked unauthorized process execution in wisecow container"
+  selector:
+    matchLabels:
+      app: wisecow  # Applies only to wisecow pods
+  process:
+    matchPaths:
+      # Block common attack tools that should never run in this container
+      - path: /bin/sh
+        action: Block
+      - path: /usr/bin/wget
+        action: Block
+      - path: /usr/bin/curl
+        action: Block
+      - path: /usr/bin/apt
+        action: Block
+      - path: /usr/bin/apt-get
+        action: Block
+      - path: /bin/nc
+        action: Block   # Block raw netcat usage outside wisecow context
+    matchDirectories:
+      # Block all executables in /sbin (system admin tools not needed)
+      - dir: /sbin/
+        recursive: true
+        action: Block
+      # Block compiler tools — no compiling should happen at runtime
+      - dir: /usr/bin/gcc
+        action: Block
+  action: Block
+
+---
+# Policy 2: FILE — Protect sensitive system files from being read or modified
+apiVersion: security.kubearmor.com/v1
+kind: KubeArmorPolicy
+metadata:
+  name: wisecow-block-sensitive-file-access
+  namespace: default
+spec:
+  severity: 8
+  message: "Blocked unauthorized access to sensitive file in wisecow container"
+  selector:
+    matchLabels:
+      app: wisecow
+  file:
+    matchPaths:
+      # Block access to sensitive credential and system files
+      - path: /etc/passwd
+        action: Block
+      - path: /etc/shadow
+        action: Block
+      - path: /etc/hosts
+        action: Block
+      - path: /etc/hostname
+        action: Block
+      - path: /root/.bashrc
+        action: Block
+      - path: /root/.bash_history
+        action: Block
+    matchDirectories:
+      # Block access to Kubernetes service account tokens
+      # (prevents container from calling K8s API unauthorised)
+      - dir: /run/secrets/kubernetes.io/serviceaccount/
+        recursive: true
+        action: Block
+      # Block access to /proc — prevents process snooping
+      - dir: /proc/
+        recursive: false
+        action: Block
+  action: Block
+
+---
+# Policy 3: NETWORK — Restrict network activity
+# Wisecow only needs to SERVE on port 4499, nothing else
+apiVersion: security.kubearmor.com/v1
+kind: KubeArmorPolicy
+metadata:
+  name: wisecow-block-network-abuse
+  namespace: default
+spec:
+  severity: 9
+  message: "Blocked unauthorized network activity in wisecow container"
+  selector:
+    matchLabels:
+      app: wisecow
+  network:
+    matchProtocols:
+      # Block raw socket access — prevents port scanning / exploitation
+      - protocol: raw
+        action: Block
+      # Block unix domain sockets (not needed by wisecow)
+      - protocol: unix
+        action: Block
+  action: Block
