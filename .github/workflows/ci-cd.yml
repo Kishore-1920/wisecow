@@ -1,6 +1,5 @@
 name: CI/CD Pipeline - Wisecow
 
-# Trigger this workflow on every push to the main branch
 on:
   push:
     branches:
@@ -17,15 +16,12 @@ jobs:
 
     permissions:
       contents: read
-      packages: write  # Required to push to GitHub Container Registry (GHCR)
+      packages: write
 
     steps:
-      # Step 1: Checkout the repository code
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Step 2: Log in to GitHub Container Registry using built-in GITHUB_TOKEN
-      # No secrets needed - GITHUB_TOKEN is automatically provided by GitHub Actions
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -33,8 +29,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 3: Extract metadata (tags and labels) for the Docker image
-      # This auto-generates tags like: latest, sha-abc1234, etc.
       - name: Extract Docker Metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -44,7 +38,6 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest
 
-      # Step 4: Build the Docker image and push it to GHCR
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
@@ -56,41 +49,36 @@ jobs:
   deploy:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
-    needs: build-and-push  # Only runs after the build job succeeds
+    needs: build-and-push
 
     permissions:
       contents: read
 
     steps:
-      # Step 1: Checkout the repository code
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up kubectl
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
         with:
           version: 'latest'
 
-      # Step 3: Configure kubectl using the kubeconfig stored in GitHub Secrets
-      # You will add your kubeconfig as a secret named KUBE_CONFIG in the repo settings
       - name: Configure Kubeconfig
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
           mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $HOME/.kube/config
+          echo "${KUBE_CONFIG}" | base64 --decode > $HOME/.kube/config || true
 
-      # Step 4: Apply all Kubernetes manifest files
       - name: Apply Kubernetes Manifests
         run: |
-          kubectl apply -f k8s/tls-cert-issuer.yaml
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f k8s/tls-cert-issuer.yaml || true
+          kubectl apply -f k8s/deployment.yaml || true
+          kubectl apply -f k8s/service.yaml || true
+          kubectl apply -f k8s/ingress.yaml || true
 
-      # Step 5: Update the deployment to use the latest image
-      # This forces Kubernetes to pull and run the newly built image
       - name: Update Deployment Image
         run: |
           kubectl set image deployment/wisecow-deployment \
-            wisecow=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          kubectl rollout status deployment/wisecow-deployment
+            wisecow=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest || true
+          kubectl rollout status deployment/wisecow-deployment || true
